@@ -1,0 +1,58 @@
+#!/bin/bash
+
+#PBS -l nodes=1:ppn=12    # uses 1 nodes
+#PBS -N Convergence           # sents job name
+#PBS -l walltime=02:00:00    # sets maximum total CPU time
+#PBS -V
+#PBS -q secondary
+
+cd $PBS_O_WORKDIR
+
+module load openmpi/1.4-gcc
+module load intel/11.1
+
+NAMEADD="Graphite-16x16x8"     #wird an die relevanten Output-Files angehaengt
+RANGE=( 300 400 500 600 700 800 900 1000 1100 1200 )
+
+for i in ${RANGE[@]}
+do
+#the following lines write the POSCAR file for one lattice constant
+
+cat >INCAR <<!
+PREC=High
+LREAL=.FALSE
+IALGO=48
+ISMEAR=0 ; SIGMA=0.0001
+ENCUT=$i
+
+EDIFF=1.E-6
+ISTART=0
+NBANDS=48
+
+ISIF=2
+IBRION=-1
+NSW=0
+!
+
+echo "ENCUT= $i"
+
+#run VASP
+
+date > output
+mpiexec /projects/sg/dli10/vasp.5.3.3 > ./output
+date >> output
+
+E=`tail -1 OSZICAR`
+
+#extract some information to a SUMMARY file
+
+echo $i $E >> SUMMARY_$NAMEADD
+
+#keep the output and rename it
+
+cp OUTCAR OUTCAR_$NAMEADD-$i
+cp OSZICAR OSZICAR_$NAMEADD-$i
+cp CONTCAR CONTCAR_$NAMEADD-$i
+cp output output_$NAMEADD-$i
+
+done

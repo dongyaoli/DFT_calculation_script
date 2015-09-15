@@ -1,0 +1,88 @@
+#!/bin/bash
+
+#PBS -l nodes=1:ppn=12    # uses 1 nodes
+#PBS -N MoS2_Vsweep          # sents job name
+#PBS -l walltime=04:00:00    # sets maximum total CPU time
+#PBS -V
+#PBS -q secondary
+
+cd $PBS_O_WORKDIR
+
+module load openmpi/1.4-gcc
+module load intel/11.1
+module load python/2.7.8
+
+NAMEADD="MoS2-1500-8x8x8"     #wird an relevant Output-Files angehaengt
+RANGE=( 1.007 )
+CARATIO=3.8087
+FINISH="Current Calculation is Done"
+
+for i in ${RANGE[@]}
+do
+
+# Write POSCAR file for one scaling factor from i
+python GenPOSCAR.py $i $CARATIO
+# Calculate volume of cell
+volumeini=$(python -c 'import GenPOSCAR; print GenPOSCAR.Calcu_volume("POSCAR")')
+
+n=1 #Record the number of calculation for this scaling factor
+
+#run VASP
+date > output
+mpiexec /projects/sg/dli10/vasp.5.3.3 > ./output
+date >> output
+echo $FINISH >> output
+
+# Check if current calculation is finished
+actions() {
+while true;
+do
+  testFinish=$(tail -1 output)
+  if [ "$testFinish" = "$FINISH" ]; then
+     break
+  fi
+  sleep 10
+done
+}
+
+# If finished, extract information to SUMMARY
+E=`tail -1 OSZICAR`
+Scale=`head -2 CONTCAR | tail -1`
+echo $Scale $volumeini $n $E >> SUMMARY_$NAMEADD
+
+#Check how many ionic steps
+ionStep=$(tail -1 OSZICAR | head -c 4 | tail -1)
+
+#keep the output and rename it
+mv OUTCAR OUTCAR_$NAMEADD-$i-point-$n
+mv OSZICAR OSZICAR_$NAMEADD-$i-point-$n
+cp CONTCAR CONTCAR_$NAMEADD-$i-point-$n
+mv output output_$NAMEADD-$i-point-$n
+mv POSCAR POSCAR_$NAMEADD-$i-point-$n
+
+
+while [[ $ionStep -ne 1 ]];
+do
+	cp CONTCAR POSCAR
+	volumefinal=$(python -c 'import GenPOSCAR; print GenPOSCAR.Calcu_volume("POSCAR")')
+        #Run VASP again
+	date > output
+	mpiexec /projects/sg/dli10/vasp.5.3.3 >./output
+        date >> output
+	echo $FINISH >> output
+	actions
+	let n=n+1
+	ionStep=$(tail -1 OSZICAR | head -c 4 | tail -1)
+	E=`tail -1 OSZICAR`
+	Scale=`head -2 CONTCAR | tail -1`
+	echo $Scale $volumefinal $n $E >> SUMMARY_$NAMEADD
+	mv OUTCAR OUTCAR_$NAMEADD-$i-point-$n
+	mv OSZICAR OSZICAR_$NAMEADD-$i-point-$n
+	cp CONTCAR CONTCAR_$NAMEADD-$i-point-$n
+	mv output output_$NAMEADD-$i-point-$n
+	mv POSCAR POSCAR_$NAMEADD-$i-point-$n
+done
+done
+
+cp INCAR INCAR_$NAMEADD
+cp KPOINTS KPOINT_$NAMEADD
